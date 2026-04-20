@@ -1,0 +1,27 @@
+# Maven
+target/
+*.class
+*.jar
+*.war
+*.ear
+
+# Spring Boot
+*.pid
+
+# IDE
+.eclipse
+.idea/
+*.iml
+*.iws
+*.ipr
+.classpath
+.project
+.settings/
+.factorypath
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
