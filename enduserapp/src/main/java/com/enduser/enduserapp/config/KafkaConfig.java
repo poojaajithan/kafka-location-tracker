@@ -7,6 +7,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
+import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
 import org.springframework.kafka.listener.DefaultErrorHandler;
@@ -18,6 +20,18 @@ import org.springframework.util.backoff.FixedBackOff;
 public class KafkaConfig {
 
     private static final Logger logger = LoggerFactory.getLogger(KafkaConfig.class);
+
+    @Bean
+    public ConcurrentKafkaListenerContainerFactory<String, LocationUpdateRequest> kafkaListenerContainerFactory(
+            ConsumerFactory<String, LocationUpdateRequest> consumerFactory,
+            DefaultErrorHandler errorHandler) {
+        ConcurrentKafkaListenerContainerFactory<String, LocationUpdateRequest> factory =
+                new ConcurrentKafkaListenerContainerFactory<>();
+        factory.setConsumerFactory(consumerFactory);
+        factory.getContainerProperties().setObservationEnabled(true);
+        factory.setCommonErrorHandler(errorHandler);
+        return factory;
+    }
 
     @Bean
     public DefaultErrorHandler errorHandler(KafkaTemplate<Object, Object> template) {
