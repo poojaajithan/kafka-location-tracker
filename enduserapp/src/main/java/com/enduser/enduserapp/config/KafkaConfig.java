@@ -1,5 +1,6 @@
 package com.enduser.enduserapp.config;
 
+import com.enduser.enduserapp.models.LocationUpdateRequest;
 import org.apache.kafka.common.TopicPartition;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,23 +31,16 @@ public class KafkaConfig {
     }
 
     @KafkaListener(topics = AppConstants.LOCATION_UPDATE_TOPIC, groupId = AppConstants.CONSUMER_GROUP_ID)
-    public void updatedLocation(@Header(KafkaHeaders.RECEIVED_KEY) String driverKey, String value) {
-        if (value == null) {
-            throw new IllegalArgumentException("Received null location update — routing to DLT");
+    public void updatedLocation(@Header(KafkaHeaders.RECEIVED_KEY) String driverKey, LocationUpdateRequest request) {
+        if (request.latitude() < 0 || request.longitude() < 0) {
+            throw new IllegalArgumentException("Received negative coordinates [driverId=" + driverKey + "]: lat="
+                    + request.latitude() + ", lon=" + request.longitude() + " — routing to DLT");
         }
-        try {
-            double location = Double.parseDouble(value.trim());
-            if (location < 0) {
-                throw new IllegalArgumentException("Received negative location value: " + value + " — routing to DLT");
-            }
-        } catch (NumberFormatException e) {
-            throw new IllegalArgumentException("Received non-numeric location value: " + value + " — routing to DLT");
-        }
-        logger.info("Received location update from Kafka topic {} [driverId={}]: {}", AppConstants.LOCATION_UPDATE_TOPIC, driverKey, value);
+        logger.info("Received location update [driverId={}]: lat={}, lon={}", driverKey, request.latitude(), request.longitude());
     }
 
     @KafkaListener(topics = AppConstants.LOCATION_UPDATE_TOPIC_DLT, groupId = AppConstants.CONSUMER_GROUP_ID)
-    public void handleDlt(String value) {
+    public void handleDlt(LocationUpdateRequest value) {
         logger.error("Dead-lettered message from {}: {}", AppConstants.LOCATION_UPDATE_TOPIC_DLT, value);
     }
 }
