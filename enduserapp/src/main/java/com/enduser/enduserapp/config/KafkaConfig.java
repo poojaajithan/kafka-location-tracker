@@ -9,6 +9,8 @@ import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
 import org.springframework.kafka.listener.DefaultErrorHandler;
+import org.springframework.kafka.support.KafkaHeaders;
+import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.util.backoff.FixedBackOff;
 
 @Configuration
@@ -28,7 +30,7 @@ public class KafkaConfig {
     }
 
     @KafkaListener(topics = AppConstants.LOCATION_UPDATE_TOPIC, groupId = AppConstants.CONSUMER_GROUP_ID)
-    public void updatedLocation(String value) {
+    public void updatedLocation(@Header(KafkaHeaders.RECEIVED_KEY) String driverKey, String value) {
         if (value == null) {
             throw new IllegalArgumentException("Received null location update — routing to DLT");
         }
@@ -40,7 +42,7 @@ public class KafkaConfig {
         } catch (NumberFormatException e) {
             throw new IllegalArgumentException("Received non-numeric location value: " + value + " — routing to DLT");
         }
-        logger.info("Received location update from Kafka topic {}: {}", AppConstants.LOCATION_UPDATE_TOPIC, value);
+        logger.info("Received location update from Kafka topic {} [driverId={}]: {}", AppConstants.LOCATION_UPDATE_TOPIC, driverKey, value);
     }
 
     @KafkaListener(topics = AppConstants.LOCATION_UPDATE_TOPIC_DLT, groupId = AppConstants.CONSUMER_GROUP_ID)

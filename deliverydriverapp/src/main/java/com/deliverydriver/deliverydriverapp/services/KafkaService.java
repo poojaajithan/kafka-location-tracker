@@ -15,9 +15,9 @@ public class KafkaService {
     @Autowired
     private KafkaTemplate<String, String> kafkaTemplate;
 
-    public boolean updateLocation(String location){
-        this.kafkaTemplate.send(AppConstants.LOCATION_UPDATE_TOPIC, location);
-        logger.info("Location sent to Kafka topic {}: {}", AppConstants.LOCATION_UPDATE_TOPIC, location);
+    public boolean updateLocation(String driverId, String location){
+        this.kafkaTemplate.send(AppConstants.LOCATION_UPDATE_TOPIC, driverId, location);
+        logger.info("Location sent to Kafka topic {} [driverId={}]: {}", AppConstants.LOCATION_UPDATE_TOPIC, driverId, location);
         return true;
     }
 
