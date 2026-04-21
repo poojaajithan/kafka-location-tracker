@@ -1,23 +1,27 @@
 # Kafka Location Tracker
 
-A real-time location tracking system built with Spring Boot microservices communicating via Apache Kafka.
+A real-time location tracking system built with Spring Boot microservices communicating via Apache Kafka, with distributed tracing via Micrometer + Zipkin.
 
 ## Architecture
 
 ```
 Delivery Driver App  →  Kafka Topic (location-update-topic)  →  End User App
      (port 8080)                                                  (port 8081)
+          ↓                                                            ↓
+                         Zipkin (port 9411)
 ```
 
-- **deliverydriverapp** — Kafka producer. Exposes a REST API to receive location updates from drivers and publishes them to a Kafka topic.
-- **enduserapp** — Kafka consumer. Listens to the Kafka topic and processes incoming location updates in real time.
+- **deliverydriverapp** — Kafka producer. Exposes a REST API to receive JSON location updates from drivers, publishes them to a Kafka topic, and emits trace spans.
+- **enduserapp** — Kafka consumer. Listens to the Kafka topic, processes incoming location updates, routes failed messages to a Dead Letter Topic (DLT), and emits trace spans.
+- **Zipkin** — Collects and visualises distributed traces across both services.
 
 ## Tech Stack
 
 - Java 17
 - Spring Boot 3.2.5
-- Spring Kafka 3.6.2
+- Spring Kafka 3.1.4
 - Apache Kafka (running locally)
+- Micrometer Tracing (Brave bridge) + Zipkin
 - Maven (multi-module project)
 
 ## Prerequisites
@@ -25,6 +29,7 @@ Delivery Driver App  →  Kafka Topic (location-update-topic)  →  End User App
 - Java 17+
 - Maven 3.6+
 - Apache Kafka running on `localhost:9092`
+- Docker (for Zipkin)
 
 ### Start Kafka (if not already running)
 
@@ -35,6 +40,14 @@ bin/zookeeper-server-start.sh config/zookeeper.properties
 # Start Kafka broker
 bin/kafka-server-start.sh config/server.properties
 ```
+
+### Start Zipkin
+
+```bash
+docker run -d -p 9411:9411 --name zipkin openzipkin/zipkin
+```
+
+Zipkin UI: `http://localhost:9411`
 
 ## Project Structure
 
@@ -47,13 +60,17 @@ location-tracker/          ← Parent Maven project
 │       │   └── KafkaConfig.java
 │       ├── controllers/
 │       │   └── LocationController.java
+│       ├── models/
+│       │   └── LocationUpdateRequest.java
 │       └── services/
 │           └── KafkaService.java
 └── enduserapp/            ← Consumer microservice (port 8081)
     └── src/main/java/com/enduser/enduserapp/
-        └── config/
-            ├── AppConstants.java
-            └── KafkaConfig.java
+        ├── config/
+        │   ├── AppConstants.java
+        │   └── KafkaConfig.java
+        └── models/
+            └── LocationUpdateRequest.java
 ```
 
 ## Running the Applications
@@ -82,18 +99,43 @@ Runs on `http://localhost:8081`
 
 ```
 POST http://localhost:8080/location/update
-Content-Type: text/plain
+Content-Type: application/json
 
-12.9716,77.5946
+{"driverId": "driver-1", "latitude": 12.9716, "longitude": 77.5946}
 ```
 
 **Response:** `Location updated successfully`
 
-The location will be published to the `location-update-topic` Kafka topic and consumed by `enduserapp`, which logs it:
+The message is serialised as JSON, published to the `location-update-topic` Kafka topic, and consumed by `enduserapp`, which logs it:
 
 ```
-INFO  Received location update from Kafka topic location-update-topic: 12.9716,77.5946
+INFO  [enduserapp,<traceId>,<spanId>] Received location update [driverId=driver-1]: lat=12.9716, lon=77.5946
 ```
+
+### Send an invalid update (triggers DLT)
+
+```
+POST http://localhost:8080/location/update
+Content-Type: application/json
+
+{"driverId": "driver-1", "latitude": -5.0, "longitude": 77.5946}
+```
+
+Negative coordinates cause the consumer to throw, retrying 3 times before routing the message to `location-update-topic.DLT`.
+
+## Distributed Tracing
+
+Every request produces a single `traceId` that flows from HTTP → Kafka producer → Kafka consumer across both services. Logs include the traceId and spanId:
+
+```
+[deliverydriverapp, 69e7c80e6d603a0fb5532627add0f981, b5532627add0f981]  ← HTTP + produce
+[enduserapp,        69e7c80e6d603a0fb5532627add0f981, 027e1bc965b90bd8]  ← consume
+```
+
+View the full trace in Zipkin at `http://localhost:9411`:
+- Span 1: `deliverydriverapp` — `POST /location/update`
+- Span 2: `deliverydriverapp` — `location-update-topic send`
+- Span 3: `enduserapp` — `location-update-topic receive`
 
 ## Kafka Configuration
 
@@ -101,6 +143,9 @@ INFO  Received location update from Kafka topic location-update-topic: 12.9716,7
 |---|---|
 | Bootstrap servers | `localhost:9092` |
 | Topic | `location-update-topic` |
-| Partitions | 1 |
+| Partitions | 3 |
 | Replicas | 1 |
 | Consumer group | `location-group` |
+| Dead Letter Topic | `location-update-topic.DLT` |
+| Message format | JSON (`JsonSerializer` / `JsonDeserializer`) |
+| DLT retry policy | 3 retries, 1 s fixed backoff |
